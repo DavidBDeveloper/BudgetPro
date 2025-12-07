@@ -1006,6 +1006,95 @@
         function toggleArchiveModal() { document.getElementById('archiveModal').classList.toggle('hidden'); }
         function executeArchive() { const m = document.getElementById('archiveMonthInput').value; const y = document.getElementById('archiveYearInput').value; const name = `${m} ${y}`; const total = parseFloat(document.getElementById('totalSpentDisplay').textContent.replace(/[^0-9]/g,'')); const breakdown = categoryConfig.filter(c => c.id !== 'atm').map(c => { const val = getActual(c.id); return val > 0 ? { name: c.name, amount: val, icon: c.icon, color: c.color } : null; }).filter(x => x).sort((a,b) => b.amount - a.amount); archivedMonths.push({ id: Date.now(), name: name, total, count: transactions.length, breakdown: breakdown }); transactions = []; saveData(); toggleArchiveModal(); showToast("Archived!"); switchTab('history'); }
 
+        // --- ANALYSIS RENDERERS ---
+        function renderAnalysis() {
+            let needs = 0, wants = 0, savings = 0, total = 0;
+            const dataMap = {};
+            transactions.forEach(t => { if(t.catId!=='atm') dataMap[t.catId] = (dataMap[t.catId]||0) + t.amount; });
+            categoryConfig.forEach(c => { if(c.id!=='atm') dataMap[c.id] = (dataMap[c.id]||0) + getMonthlyInstallmentsCost(c.id); });
+            categoryConfig.forEach(c => { const val = dataMap[c.id] || 0; if(c.type === 1) needs += val; if(c.type === 2) wants += val; if(c.type === 3) savings += val; if(c.type > 0) total += val; });
+            const pN = total > 0 ? (needs/total)*100 : 0;
+            const pW = total > 0 ? (wants/total)*100 : 0;
+            const pS = total > 0 ? (savings/total)*100 : 0;
+            document.getElementById('valNeeds').textContent = pN.toFixed(0) + "%";
+            document.getElementById('valWants').textContent = pW.toFixed(0) + "%";
+            document.getElementById('valSavings').textContent = pS.toFixed(0) + "%";
+            let advice = "Analysis: ";
+            if(pN > 60) advice += "⚠️ High Needs. "; else if (pN < 40) advice += "✅ Needs low. ";
+            if(pW > 35) advice += "⚠️ High Wants. ";
+            if(pS < 15) advice += "⚠️ Low Savings. "; else if(pS >= 20) advice += "🌟 Good Savings! ";
+            document.getElementById('ruleFeedback').textContent = advice;
+            createGauge('chartNeeds', pN, ['#6366f1','#e2e8f0']);
+            createGauge('chartWants', pW, ['#f43f5e','#e2e8f0']);
+            createGauge('chartSavings', pS, ['#22c55e','#e2e8f0']);
+            const renderList = (typeId, elId) => {
+                const el = document.getElementById(elId); if(!el) return; el.innerHTML = '';
+                const cats = categoryConfig.filter(c => c.type === typeId);
+                cats.forEach(c => {
+                    const spent = dataMap[c.id] || 0;
+                    const opacity = spent > 0 ? 'opacity-100' : 'opacity-40';
+                    const div = document.createElement('div');
+                    div.className = `flex justify-between items-center ${opacity}`;
+                    div.innerHTML = `<div class="flex items-center gap-3"><div class="w-8 h-8 rounded-full flex items-center justify-center text-xs text-white shadow-sm" style="background-color: ${c.color}"><i class="fa-solid ${c.icon}"></i></div><span class="text-sm font-medium text-slate-700 dark:text-slate-300">${c.name}</span></div><span class="text-sm font-bold text-slate-600 dark:text-slate-400">${spent > 0 ? formatCOP(spent) : '-'}</span>`;
+                    el.appendChild(div);
+                });
+            };
+            renderList(1, 'listNeeds'); renderList(2, 'listWants'); renderList(3, 'listSavings');
+        }
+
+        function createGauge(id, v, c) {
+            const ctx = document.getElementById(id).getContext('2d');
+            if(Chart.getChart(id)) Chart.getChart(id).destroy();
+            new Chart(ctx, { type: 'doughnut', data: { datasets: [{ data: [v, 100-v], backgroundColor: c, borderWidth: 0 }] }, options: { cutout: '75%', plugins: { legend: {display:false}, tooltip: {enabled:false} }, maintainAspectRatio: false } });
+        }
+
+        function renderHistory() {
+            const list = document.getElementById('historyList');
+            list.innerHTML = '';
+            if(archivedMonths.length === 0) {
+                list.innerHTML = '<div class="p-6 text-center text-slate-400">No archives.</div>';
+                const ctx = document.getElementById('historyChart').getContext('2d');
+                if(historyChart) historyChart.destroy();
+                historyChart = new Chart(ctx, { type: 'line', data: { labels: ['Start'], datasets: [{ label: 'Total', data: [0], borderColor: '#6366f1', tension: 0.3 }] }, options: { responsive: true, maintainAspectRatio: false } });
+                return;
+            }
+            archivedMonths.slice().reverse().forEach(m => {
+                const d = document.createElement('div');
+                d.className = "flex justify-between p-4 items-center dark:text-white cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-700/50 transition-colors";
+                d.onclick = () => showHistoryDetails(m.id);
+                d.innerHTML = `<div><div class="font-bold">${m.name}</div><div class="text-xs text-slate-400">${m.count} txns</div></div><div class="flex items-center gap-3"><div class="font-bold text-indigo-600 dark:text-indigo-400">${formatCOP(m.total)}</div><i class="fa-solid fa-chevron-right text-xs text-slate-300"></i></div>`;
+                list.appendChild(d);
+            });
+            const ctx = document.getElementById('historyChart').getContext('2d');
+            if(historyChart) historyChart.destroy();
+            historyChart = new Chart(ctx, {
+                type: 'line',
+                data: { labels: archivedMonths.map(m=>m.name), datasets: [{ label: 'Total', data: archivedMonths.map(m=>m.total), borderColor: '#6366f1', tension: 0.3, fill: true, backgroundColor: '#6366f120' }] },
+                options: { responsive: true, maintainAspectRatio: false, scales: { y: { beginAtZero: true, grid: { color: '#e2e8f030' }, ticks: { color: '#94a3b8' } }, x: { grid: { display: false }, ticks: { color: '#94a3b8' } } }, plugins: { legend: { display: false } } }
+            });
+        }
+
+        function showHistoryDetails(id) {
+            const m = archivedMonths.find(x => x.id === id);
+            if(!m) return;
+            document.getElementById('histModalTitle').textContent = m.name;
+            document.getElementById('histModalTotal').textContent = formatCOP(m.total);
+            document.getElementById('histModalCount').textContent = `${m.count} transactions recorded`;
+            
+            const list = document.getElementById('histModalList');
+            list.innerHTML = '';
+            
+            if(m.breakdown && m.breakdown.length > 0) {
+                m.breakdown.forEach(item => {
+                    const d = document.createElement('div');
+                    d.className = "flex justify-between items-center p-3 bg-slate-50 dark:bg-slate-900 rounded-xl";
+                    d.innerHTML = `<div class="flex items-center gap-3"><div class="w-8 h-8 rounded-full flex items-center justify-center text-xs text-white" style="background-color: ${item.color}"><i class="fa-solid ${item.icon}"></i></div><span class="text-sm font-medium text-slate-700 dark:text-slate-300">${item.name}</span></div><span class="text-sm font-bold text-slate-600 dark:text-slate-400">${formatCOP(item.amount)}</span>`;
+                    list.appendChild(d);
+                });
+            } else { list.innerHTML = `<div class="text-center p-4 text-slate-400 italic text-sm">No detailed breakdown available for this old archive.</div>`; }
+            document.getElementById('historyDetailsModal').classList.remove('hidden');
+        }
+
         // --- NEW AI FEATURES ---
         function fileToBase64(file) {
             return new Promise((resolve, reject) => {
