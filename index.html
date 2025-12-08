@@ -31,20 +31,28 @@
         import { getAuth, signInAnonymously } from "https://www.gstatic.com/firebasejs/10.13.1/firebase-auth.js";
 
         window.firebaseModules = { initializeApp, getFirestore, doc, setDoc, getDoc, onSnapshot, getAuth, signInAnonymously };
+        // Signal that modules are loaded
         window.dispatchEvent(new Event('firebase-ready'));
     </script>
 
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
         body { font-family: 'Inter', sans-serif; -webkit-tap-highlight-color: transparent; }
+        
         .fade-in { animation: fadeIn 0.3s ease-in-out; }
         @keyframes fadeIn { from { opacity: 0; transform: translateY(5px); } to { opacity: 1; transform: translateY(0); } }
+
+        /* Custom Scrollbar */
         ::-webkit-scrollbar { width: 6px; height: 6px; }
         ::-webkit-scrollbar-track { background: transparent; }
         ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
         ::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
         .dark ::-webkit-scrollbar-thumb { background: #475569; }
-        input[type="number"]::-webkit-inner-spin-button, input[type="number"]::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
+
+        input[type="number"]::-webkit-inner-spin-button, 
+        input[type="number"]::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
+        
+        /* Credit Card Gradients */
         .card-gradient-1 { background: linear-gradient(135deg, #6366f1 0%, #a855f7 100%); }
         .card-gradient-2 { background: linear-gradient(135deg, #3b82f6 0%, #06b6d4 100%); }
         .card-gradient-3 { background: linear-gradient(135deg, #f43f5e 0%, #f97316 100%); }
@@ -57,6 +65,7 @@
     <nav class="bg-gradient-to-r from-indigo-900 to-indigo-700 dark:from-slate-950 dark:to-slate-800 text-white shadow-lg sticky top-0 z-40">
         <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
             <div class="flex flex-col sm:flex-row justify-between items-center py-4 gap-4">
+                
                 <div class="flex items-center gap-3 w-full sm:w-auto">
                     <div class="bg-white/20 p-2.5 rounded-xl backdrop-blur-sm">
                         <i class="fa-solid fa-wallet text-2xl text-yellow-300"></i>
@@ -151,7 +160,7 @@
                         <button onclick="saveFirebaseConfig()" class="w-full bg-slate-200 dark:bg-slate-700 hover:bg-slate-300 dark:hover:bg-slate-600 text-slate-700 dark:text-white font-bold py-2 rounded-xl transition-all text-sm mb-4">Connect</button>
                     </div>
                     <hr class="border-slate-100 dark:border-slate-700">
-                    <div id="syncIdSection" class="opacity-50 pointer-events-none">
+                    <div id="syncIdSection">
                         <p class="text-sm text-slate-600 dark:text-slate-300 mb-2">2. Your <b>Sync ID</b> (Share this with iPhone)</p>
                         <div class="flex gap-2 mb-2">
                             <input type="text" id="syncIdInput" readonly class="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-4 py-3 font-mono text-center tracking-widest font-bold dark:text-white focus:outline-none text-xs">
@@ -590,17 +599,22 @@
             if(!val) return;
             
             try {
-                // Try strict JSON first
+                // 1. Try parsing as strict JSON first
                 JSON.parse(val);
             } catch (e) {
-                // Try to fix unquoted keys (common in Firebase console copy-paste)
+                // 2. Safety-First Parser (Regex)
+                // This fixes unquoted keys (e.g. apiKey: "...") into quoted keys (e.g. "apiKey": "...")
+                // It does NOT run code, making it safe for GitHub Pages/CSP.
                 try {
-                    // loose parsing using Function constructor (safer than eval, scopes to global/isolated)
-                    // We need to wrap in parens to ensure it's treated as an expression
-                    const fixed = new Function("return " + val)();
-                    val = JSON.stringify(fixed); // Convert back to strict JSON for storage
+                    const fixedStr = val.replace(/([{,]\s*)([a-zA-Z0-9_]+)\s*:/g, '$1"$2":');
+                    
+                    // Verify the fix worked by parsing it
+                    JSON.parse(fixedStr); 
+                    
+                    // If successful, use the fixed string
+                    val = fixedStr;
                 } catch (e2) {
-                    alert("Invalid Configuration Format. Please ensure you copied the object correctly.");
+                    alert("Invalid Configuration Format. Please ensure you copied the object correctly (including the curly braces).");
                     return;
                 }
             }
