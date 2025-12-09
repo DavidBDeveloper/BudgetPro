@@ -543,6 +543,13 @@
             toggleSyncModal();
         }
 
+        // Helper to handle Firebase's object-for-arrays quirk
+        function ensureArray(input) {
+            if (!input) return [];
+            if (Array.isArray(input)) return input;
+            return Object.values(input);
+        }
+
         function initFirebase() {
              try {
                 const configObj = new Function("return " + firebaseConfigStr)(); 
@@ -560,21 +567,28 @@
                 const ref = db.ref('budgets/' + syncId);
                 ref.on('value', (snapshot) => {
                     const data = snapshot.val();
-                    if(data) {
+                    
+                    // Smart Sync: 
+                    // If cloud is empty (or just has metadata) BUT we have local data, 
+                    // we assume this is the first sync and UPLOAD local data.
+                    // Otherwise, we DOWNLOAD from cloud.
+                    
+                    const hasCloudData = data && (data.budgets || data.logs || data.cards);
+                    
+                    if(hasCloudData) {
                         monthlyBudgets = data.budgets || {};
-                        transactions = data.logs || [];
-                        archivedMonths = data.archives || [];
-                        creditCards = data.cards || [];
-                        installments = data.installments || [];
+                        transactions = ensureArray(data.logs);
+                        archivedMonths = ensureArray(data.archives);
+                        creditCards = ensureArray(data.cards);
+                        installments = ensureArray(data.installments);
                         
                         categoryConfig.forEach(cat => { if (monthlyBudgets[cat.id] === undefined) monthlyBudgets[cat.id] = 0; });
                         transactions = transactions.map(t => ({...t, method: t.method || 'debit'}));
                         
-                        // Force Re-render of EVERYTHING to show new data
                         renderAll();
                         showToast("Synced from Cloud ☁️");
                     } else {
-                        // Cloud is empty, push local data to init
+                        // Cloud is empty. If we have local data, push it up.
                         if(transactions.length > 0 || Object.keys(monthlyBudgets).length > 0) {
                             saveData(); 
                         }
